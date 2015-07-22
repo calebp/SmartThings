@@ -32,6 +32,7 @@ def installed() {
 
 def updated() {
 	log.debug "Updated with settings: ${settings}"
+    unschedule()
 	unsubscribe()
 	initialize()
 }
@@ -39,15 +40,27 @@ def updated() {
 def initialize() {
     subscribe(thermostat, "thermostatOperatingState", operatingStateHandler)
     state.priorFanMode = thermostat.currentValue("thermostatFanMode")
+    state.fanBeingExtended = 0
 }
 
 def operatingStateHandler(evt) {
     log.debug "Operating state is $evt.value"
     if(evt.value == "heating" || evt.value == "cooling")
     {
-        state.priorFanMode = thermostat.currentValue("thermostatFanMode")
+        if(state.fanBeingExtended == 0)
+        {
+            state.priorFanMode = thermostat.currentValue("thermostatFanMode")
+            thermostat.fanOn()
+            state.fanBeingExtended = 1
+        }
+        else
+        {
+            log.debug "Hvac cycle repeated inside fan extension, unschedule and delay"
+            unschedule()
+        }
+        
         log.debug "Hvac cycle for $evt.value entered, setting fan on, fan mode was ${state.priorFanMode}"
-        thermostat.fanOn()
+        
     }
     else if(evt.value == "idle") {
         log.debug "Hvac control is idle, setting fan timeout for ${intervalInMin} minutes"
@@ -71,6 +84,7 @@ def fanExtensionExpiryHandler(evt) {
     else {
         log.debug "Fan state changed to ${currentFanMode} since initial set, returning"
     }
+    state.fanBeingExtended = 0
     state.priorFanMode = ""
 }
 
@@ -80,7 +94,7 @@ def parseAndSetFan(fanState) {
         thermostat.fanAuto()
     }
     else if(fanState == "fanOn") {
-        thermostat.fanOn()
+        // do nothing, as the fan is by definition running now
     }
     else if(fanState == "fanCirculate") {
         thermotat.fanCirculate()
